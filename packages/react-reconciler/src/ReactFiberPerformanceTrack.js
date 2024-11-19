@@ -114,20 +114,74 @@ export function logComponentEffect(
   }
 }
 
+export function logYieldTime(startTime: number, endTime: number): void {
+  if (supportsUserTiming) {
+    const yieldDuration = endTime - startTime;
+    if (yieldDuration < 1) {
+      // Skip sub-millisecond yields. This happens all the time and is not interesting.
+      return;
+    }
+    // Being blocked on CPU is potentially bad so we color it by how long it took.
+    reusableComponentDevToolDetails.color =
+      yieldDuration < 5
+        ? 'primary-light'
+        : yieldDuration < 10
+          ? 'primary'
+          : yieldDuration < 100
+            ? 'primary-dark'
+            : 'error';
+    reusableComponentOptions.start = startTime;
+    reusableComponentOptions.end = endTime;
+    performance.measure('Blocked', reusableComponentOptions);
+  }
+}
+
+export function logSuspendedYieldTime(
+  startTime: number,
+  endTime: number,
+  suspendedFiber: Fiber,
+): void {
+  if (supportsUserTiming) {
+    reusableComponentDevToolDetails.color = 'primary-light';
+    reusableComponentOptions.start = startTime;
+    reusableComponentOptions.end = endTime;
+    performance.measure('Suspended', reusableComponentOptions);
+  }
+}
+
+export function logActionYieldTime(
+  startTime: number,
+  endTime: number,
+  suspendedFiber: Fiber,
+): void {
+  if (supportsUserTiming) {
+    reusableComponentDevToolDetails.color = 'primary-light';
+    reusableComponentOptions.start = startTime;
+    reusableComponentOptions.end = endTime;
+    performance.measure('Action', reusableComponentOptions);
+  }
+}
+
 export function logBlockingStart(
   updateTime: number,
   eventTime: number,
   eventType: null | string,
+  eventIsRepeat: boolean,
   renderStartTime: number,
 ): void {
   if (supportsUserTiming) {
     reusableLaneDevToolDetails.track = 'Blocking';
     if (eventTime > 0 && eventType !== null) {
       // Log the time from the event timeStamp until we called setState.
-      reusableLaneDevToolDetails.color = 'secondary-dark';
+      reusableLaneDevToolDetails.color = eventIsRepeat
+        ? 'secondary-light'
+        : 'warning';
       reusableLaneOptions.start = eventTime;
       reusableLaneOptions.end = updateTime > 0 ? updateTime : renderStartTime;
-      performance.measure(eventType, reusableLaneOptions);
+      performance.measure(
+        eventIsRepeat ? '' : 'Event: ' + eventType,
+        reusableLaneOptions,
+      );
     }
     if (updateTime > 0) {
       // Log the time from when we called setState until we started rendering.
@@ -144,13 +198,16 @@ export function logTransitionStart(
   updateTime: number,
   eventTime: number,
   eventType: null | string,
+  eventIsRepeat: boolean,
   renderStartTime: number,
 ): void {
   if (supportsUserTiming) {
     reusableLaneDevToolDetails.track = 'Transition';
     if (eventTime > 0 && eventType !== null) {
       // Log the time from the event timeStamp until we started a transition.
-      reusableLaneDevToolDetails.color = 'secondary-dark';
+      reusableLaneDevToolDetails.color = eventIsRepeat
+        ? 'secondary-light'
+        : 'warning';
       reusableLaneOptions.start = eventTime;
       reusableLaneOptions.end =
         startTime > 0
@@ -158,7 +215,10 @@ export function logTransitionStart(
           : updateTime > 0
             ? updateTime
             : renderStartTime;
-      performance.measure(eventType, reusableLaneOptions);
+      performance.measure(
+        eventIsRepeat ? '' : 'Event: ' + eventType,
+        reusableLaneOptions,
+      );
     }
     if (startTime > 0) {
       // Log the time from when we started an async transition until we called setState or started rendering.
@@ -183,6 +243,67 @@ export function logRenderPhase(startTime: number, endTime: number): void {
     reusableLaneOptions.start = startTime;
     reusableLaneOptions.end = endTime;
     performance.measure('Render', reusableLaneOptions);
+  }
+}
+
+export function logInterruptedRenderPhase(
+  startTime: number,
+  endTime: number,
+): void {
+  if (supportsUserTiming) {
+    reusableLaneDevToolDetails.color = 'primary-dark';
+    reusableLaneOptions.start = startTime;
+    reusableLaneOptions.end = endTime;
+    performance.measure('Interrupted Render', reusableLaneOptions);
+  }
+}
+
+export function logSuspendedRenderPhase(
+  startTime: number,
+  endTime: number,
+): void {
+  if (supportsUserTiming) {
+    reusableLaneDevToolDetails.color = 'primary-dark';
+    reusableLaneOptions.start = startTime;
+    reusableLaneOptions.end = endTime;
+    performance.measure('Prewarm', reusableLaneOptions);
+  }
+}
+
+export function logSuspendedWithDelayPhase(
+  startTime: number,
+  endTime: number,
+): void {
+  // This means the render was suspended and cannot commit until it gets unblocked.
+  if (supportsUserTiming) {
+    reusableLaneDevToolDetails.color = 'primary-dark';
+    reusableLaneOptions.start = startTime;
+    reusableLaneOptions.end = endTime;
+    performance.measure('Suspended', reusableLaneOptions);
+  }
+}
+
+export function logErroredRenderPhase(
+  startTime: number,
+  endTime: number,
+): void {
+  if (supportsUserTiming) {
+    reusableLaneDevToolDetails.color = 'error';
+    reusableLaneOptions.start = startTime;
+    reusableLaneOptions.end = endTime;
+    performance.measure('Errored Render', reusableLaneOptions);
+  }
+}
+
+export function logInconsistentRender(
+  startTime: number,
+  endTime: number,
+): void {
+  if (supportsUserTiming) {
+    reusableLaneDevToolDetails.color = 'error';
+    reusableLaneOptions.start = startTime;
+    reusableLaneOptions.end = endTime;
+    performance.measure('Teared Render', reusableLaneOptions);
   }
 }
 
@@ -221,12 +342,19 @@ export function logCommitPhase(startTime: number, endTime: number): void {
   }
 }
 
-export function logPaintYieldPhase(startTime: number, endTime: number): void {
+export function logPaintYieldPhase(
+  startTime: number,
+  endTime: number,
+  delayedUntilPaint: boolean,
+): void {
   if (supportsUserTiming) {
     reusableLaneDevToolDetails.color = 'secondary-light';
     reusableLaneOptions.start = startTime;
     reusableLaneOptions.end = endTime;
-    performance.measure('Waiting for Paint', reusableLaneOptions);
+    performance.measure(
+      delayedUntilPaint ? 'Waiting for Paint' : '',
+      reusableLaneOptions,
+    );
   }
 }
 
